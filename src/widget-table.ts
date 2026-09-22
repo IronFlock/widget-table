@@ -50,17 +50,11 @@ export class WidgetTable extends LitElement {
     }
 
     registerTheme(theme?: Theme) {
-        const cssTextColor = getComputedStyle(this).getPropertyValue('--re-text-color').trim()
-        const cssBgColor = getComputedStyle(this).getPropertyValue('--re-tile-background-color').trim()
-        const cssHoverColor = getComputedStyle(this).getPropertyValue('--re-hover-color').trim()
-        const cssBorderColor = getComputedStyle(this).getPropertyValue('--re-border-color').trim()
-
-        this.themeBgColor = cssBgColor || this.theme?.theme_object?.backgroundColor
-        this.themeTitleColor = cssTextColor || this.theme?.theme_object?.title?.textStyle?.color
-        this.themeSubtitleColor =
-            cssTextColor || this.theme?.theme_object?.title?.subtextStyle?.color || this.themeTitleColor
-        this.themeRowHoverColor = cssHoverColor || this.computeHoverColor(this.themeBgColor)
-        this.themeBorderColor = cssBorderColor || this.computeBorderColor(this.themeTitleColor)
+        this.themeBgColor = `var(--re-tile-background-color, ${this.theme?.theme_object?.backgroundColor || 'transparent'})`
+        this.themeTitleColor = `var(--re-text-color, ${this.theme?.theme_object?.title?.textStyle?.color || 'inherit'})`
+        this.themeSubtitleColor = `var(--re-text-color, ${this.theme?.theme_object?.title?.subtextStyle?.color || this.theme?.theme_object?.title?.textStyle?.color || 'inherit'})`
+        this.themeRowHoverColor = `var(--re-hover-color, ${this.computeHoverColor(this.theme?.theme_object?.backgroundColor) || 'transparent'})`
+        this.themeBorderColor = `var(--re-border-color, ${this.computeBorderColor(this.theme?.theme_object?.title?.textStyle?.color) || 'currentColor'})`
     }
 
     private computeHoverColor(bgColor?: string): string {

@@ -27,7 +27,7 @@ Build pipeline (`vite.config.ts`):
 
 The widget exposes two reactive properties consumed by the host dashboard:
 - `inputData: TableConfiguration` — typed by `src/definition-schema.d.ts`, generated from `src/definition-schema.json`. The JSON schema is the source of truth for both the runtime type and the dashboard's config UI (note the non-standard `order`, `dataDrivenDisabled`, `condition.showIfValueIn`, and `color: true` keys consumed by the IronFlock config editor).
-- `theme: { theme_name, theme_object }` — ECharts-style theme object. `registerTheme()` resolves colors with this precedence: CSS custom properties (`--re-text-color`, `--re-tile-background-color`, `--re-hover-color`, `--re-border-color`) on the host element override `theme_object` values.
+- `theme: { theme_name, theme_object }` — ECharts-style theme object. `registerTheme()` resolves colors with this precedence: CSS custom properties (`--re-text-color`, `--re-tile-background-color`, `--re-hover-color`, `--re-border-color`) on the host element override `theme_object` values. These are not snapshotted: `registerTheme()` stores a `var(--re-…, <theme value>)` chain, so a change to the host property repaints the tile live without the widget being told.
 
 ### Data shape and rendering
 
