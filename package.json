@@ -18,7 +18,6 @@
         "thumbnail.webp"
     ],
     "scripts": {
-        "analyze": "cem analyze --litelement",
         "start": "vite build --watch & vite",
         "build": "vite build",
         "watch": "vite build --watch",
@@ -40,7 +39,6 @@
         "@vaadin/grid": "^24.0.0 || ^25.1.3"
     },
     "devDependencies": {
-        "@custom-elements-manifest/analyzer": "^0.11.0",
         "@rollup/plugin-replace": "^6.0.2",
         "@vaadin/grid": "^25.1.3",
         "json-schema-to-typescript": "^15.0.4",
