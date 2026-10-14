@@ -49,14 +49,14 @@
     },
     "repository": {
         "type": "git",
-        "url": "git+https://github.com/RecordEvolution/widget-table.git"
+        "url": "git+https://github.com/IronFlock/widget-table.git"
     },
     "keywords": [
         "widget",
         "table"
     ],
     "bugs": {
-        "url": "https://github.com/RecordEvolution/widget-table/issues"
+        "url": "https://github.com/IronFlock/widget-table/issues"
     },
-    "homepage": "https://github.com/RecordEvolution/widget-table#readme"
+    "homepage": "https://github.com/IronFlock/widget-table#readme"
 }
