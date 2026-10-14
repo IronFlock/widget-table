@@ -7,7 +7,7 @@ A Lit 3.x web component for rendering data tables with sortable columns, powered
 ## Installation
 
 ```bash
-npm i @record-evolution/widget-table
+npm i @ironflock/widget-table
 ```
 
 **Peer Dependencies:** This widget requires `@vaadin/grid` to be installed in your application.
@@ -16,7 +16,7 @@ npm i @record-evolution/widget-table
 
 ```html
 <script type="module">
-    import '@record-evolution/widget-table'
+    import '@ironflock/widget-table'
 </script>
 
 <widget-table-1.2.0></widget-table-1.2.0>
