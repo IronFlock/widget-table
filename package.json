@@ -3,7 +3,7 @@
     "description": "REWidget widget-table",
     "license": "MIT",
     "author": "widget-table",
-    "version": "1.1.25",
+    "version": "1.1.26",
     "engines": {
         "node": ">=24.9.0",
         "npm": ">=10.0.2"
