@@ -14,6 +14,63 @@ type Theme = {
     theme_name: string
     theme_object: any
 }
+let colorContext: CanvasRenderingContext2D | null | undefined
+
+// A colour as [r, g, b, alpha] in sRGB (channels 0-255), parsed by the browser
+// itself through a canvas's fillStyle, so names, hsl(), hex with alpha,
+// color-mix() and the like all work. A value the browser rejects comes back
+// fully transparent, the way an invalid background-color leaves a tile. Only
+// the normalised string is read, never pixels: with Firefox's
+// resistFingerprinting on, as in Tor Browser, getImageData() answers with
+// random colours.
+const parseColor = (value: string): number[] => {
+    colorContext ??= document.createElement('canvas').getContext('2d')
+    if (!colorContext) return [0, 0, 0, 0]
+    // Chromium hands oklch(), lab(), color() and the like back as written;
+    // mixed into srgb they come back as color(srgb r g b / alpha). It rejects
+    // light-dark() outright but takes it inside color-mix().
+    for (const candidate of [value, `color-mix(in srgb, ${value} 100%, transparent)`]) {
+        // A rejected value leaves the previous fillStyle in place, so set it
+        // after two different placeholders: only an accepted one reads the same.
+        colorContext.fillStyle = '#000'
+        colorContext.fillStyle = candidate
+        const color = String(colorContext.fillStyle)
+        colorContext.fillStyle = '#fff'
+        colorContext.fillStyle = candidate
+        if (String(colorContext.fillStyle) !== color) continue
+        let match = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/.exec(color)
+        if (match) return [...match.slice(1).map((hex) => parseInt(hex, 16)), 1]
+        match = /^rgba\((\d+), (\d+), (\d+), ([\d.]+)\)$/.exec(color)
+        if (match) return match.slice(1).map(Number)
+        match = /^color\(srgb (\S+) (\S+) (\S+)(?: \/ (\S+))?\)$/.exec(color)
+        if (match) {
+            const [r, g, b] = match.slice(1, 4).map((v) => Math.min(Math.max(Number(v) || 0, 0), 1) * 255)
+            return [r, g, b, Number(match[4] ?? 1) || 0]
+        }
+    }
+    return [0, 0, 0, 0]
+}
+
+const surfaceCache = new Map<string, string>()
+
+// Paint the given colours, bottom first, over white, as the screen composites
+// a translucent background over what is behind it, and return the opaque
+// result as #rrggbb.
+const opaqueSurface = (layers: string[]): string => {
+    const key = JSON.stringify(layers)
+    const cached = surfaceCache.get(key)
+    if (cached !== undefined) return cached
+
+    let surface = [255, 255, 255]
+    for (const layer of layers) {
+        const [r, g, b, alpha] = parseColor(layer)
+        surface = [r, g, b].map((channel, i) => channel * alpha + surface[i] * (1 - alpha))
+    }
+    const hex = '#' + surface.map((channel) => Math.round(channel).toString(16).padStart(2, '0')).join('')
+    surfaceCache.set(key, hex)
+    return hex
+}
+
 @customElement('widget-table-versionplaceholder')
 export class WidgetTable extends LitElement {
     @property({ type: Object })
@@ -25,7 +82,6 @@ export class WidgetTable extends LitElement {
     @state()
     rows: RowData[] = []
 
-    @state() private themeBgColor?: string
     @state() private themeTitleColor?: string
     @state() private themeSubtitleColor?: string
     @state() private themeRowHoverColor?: string
@@ -50,7 +106,6 @@ export class WidgetTable extends LitElement {
     }
 
     registerTheme(theme?: Theme) {
-        this.themeBgColor = `var(--re-tile-background-color, ${this.theme?.theme_object?.backgroundColor || 'transparent'})`
         this.themeTitleColor = `var(--re-text-color, ${this.theme?.theme_object?.title?.textStyle?.color || 'inherit'})`
         this.themeSubtitleColor = `var(--re-text-color, ${this.theme?.theme_object?.title?.subtextStyle?.color || this.theme?.theme_object?.title?.textStyle?.color || 'inherit'})`
         this.themeRowHoverColor = `var(--re-hover-color, ${this.computeHoverColor(this.theme?.theme_object?.backgroundColor) || 'transparent'})`
@@ -347,7 +402,10 @@ export class WidgetTable extends LitElement {
             background: var(--grid-bg-color, transparent);
             /* Vaadin paints rows with --vaadin-background-color (opaque white)
                by default, which shows through wherever a cell is transparent.
-               Follow the dashboard style instead of the component default. */
+               --grid-bg-color is left unset, so the grid, its rows and cells stay
+               transparent and the tile that studio's widget-item paints shows
+               through once; painting the tile colour here too stacked it several
+               times. Only the sticky header is opaque (headerSurfaceColor()). */
             --vaadin-grid-row-background-color: var(--grid-bg-color, transparent);
             --vaadin-background-color: var(--grid-bg-color, transparent);
         }
@@ -490,14 +548,27 @@ export class WidgetTable extends LitElement {
         }
     `
 
+    /**
+     * Opaque colour for the sticky header, so rows scrolling under it stay
+     * hidden: the tile as it is displayed, --re-tile-background-color over the
+     * dashboard's --re-background-color over white. The theme background fills
+     * in for a missing tile colour or, standalone, for the dashboard's. The
+     * colours are read at render time, because a var() chain cannot be
+     * composited in JS.
+     */
+    private headerSurfaceColor(): string {
+        const style = getComputedStyle(this)
+        const tile = style.getPropertyValue('--re-tile-background-color').trim()
+        const dashboard = style.getPropertyValue('--re-background-color').trim()
+        const themeBg = String(this.theme?.theme_object?.backgroundColor ?? '')
+        return opaqueSurface(dashboard ? [dashboard, tile || themeBg] : [themeBg, tile])
+    }
+
     render() {
         const columns = this.inputData?.columns ?? []
 
         return html`
-            <div
-                class="wrapper"
-                style="color: ${this.themeTitleColor}; background-color: ${this.themeBgColor}"
-            >
+            <div class="wrapper" style="color: ${this.themeTitleColor}">
                 <header>
                     <h3 class="paging" ?active=${this.inputData?.title}>${this.inputData?.title}</h3>
                     <p
@@ -520,8 +591,7 @@ export class WidgetTable extends LitElement {
                             --cell-padding-horizontal: ${this.inputData?.styling?.cellPaddingHorizontal ||
                         '16px'};
                             --cell-padding-vertical: ${this.inputData?.styling?.cellPaddingVertical || '8px'};
-                            --grid-bg-color: ${this.themeBgColor || 'transparent'};
-                            --grid-header-bg-color: ${this.themeBgColor || 'transparent'};
+                            --grid-header-bg-color: ${this.headerSurfaceColor()};
                             --grid-text-color: ${this.themeTitleColor || 'inherit'};
                             --grid-hover-color: ${this.themeRowHoverColor || 'rgba(128, 128, 128, 0.1)'};
                             --grid-column-border-width: ${this.inputData?.styling?.columnSeparators
