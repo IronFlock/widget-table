@@ -12,7 +12,7 @@
         "notFor": [
             "Spotting a trend, comparing magnitudes, or seeing a distribution — use widget-linechart; a table makes the reader do the work a chart does for them.",
             "One number that matters more than the rest — use widget-value, or widget-gauge to read it against a range.",
-            "Shares of a total — use widget-doughnut.",
+            "Shares of a total — use widget-doughnut when the parts are a fixed set that arrive as columns of one row (or as one value each); when the parts are rows of the result (one row per cause or program), use widget-linechart with dataseries[].type: 'bar'.",
             "Text written by hand rather than queried — use widget-markdown."
         ]
     },
