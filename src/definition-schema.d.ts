@@ -58,6 +58,14 @@ export type Values = {
   [k: string]: unknown;
 }[];
 /**
+ * Sorts the table's rows by this column. 'asc' puts the smallest number, the earliest timestamp, false, the first state of the State Map (unlisted states after the listed ones, alphabetically) or text from A first; 'desc' reverses it. Empty cells always come last. Sort the timestamp column 'desc' to show the newest rows first; without a sort, rows show in the order the data arrives, oldest first. Viewers can still click a header to sort by that column; clicking it a third time restores this sort.
+ */
+export type Sort = "none" | "asc" | "desc";
+/**
+ * Which sorted column counts first when several are sorted: 1 sorts first, 2 orders the rows that tie on it, and so on. Sorted columns without a priority come after those with one, in column order. Leave it empty when only one column is sorted.
+ */
+export type SortPriority = number;
+/**
  * For 'edit' columns: the URL parameter the button sets to the cell's value, such as 'edit'. Required: without it the button is shown disabled. Use the same name as the Open on URL parameter setting of the form, or the Parameter filter of the widgets, on this page that should show the clicked record.
  */
 export type URLParameterKey = string;
@@ -104,12 +112,14 @@ export type ColumnDefinitions = {
   header?: HeaderLabel;
   type?: ColumnType;
   values?: Values;
+  sortDirection?: Sort;
+  sortPriority?: SortPriority;
   styling?: Styling;
   [k: string]: unknown;
 }[];
 
 /**
- * A data table widget for displaying structured information in rows and columns. Use this widget to present lists, records, or any tabular data with customizable column types and formatting. Supports multiple column types: plain text, numbers with precision control, timestamps with format parsing, state indicators with color mapping, boolean values, clickable buttons with links, images, and edit buttons that hand a row's key to a form or another widget on the page through a URL parameter. Features include column width control, cell styling, horizontal overflow for wide tables, and header/cell separators.
+ * A data table widget for displaying structured information in rows and columns. Use this widget to present lists, records, or any tabular data with customizable column types and formatting. Supports multiple column types: plain text, numbers with precision control, timestamps with format parsing, state indicators with color mapping, boolean values, clickable buttons with links, images, and edit buttons that hand a row's key to a form or another widget on the page through a URL parameter. Features include a configurable sort order, column width control, cell styling, horizontal overflow for wide tables, and header/cell separators.
  */
 export interface TableConfiguration {
   title?: Title;

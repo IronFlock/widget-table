@@ -106,6 +106,7 @@
         {
             "header": "Last Update",
             "type": "timestamp",
+            "sortDirection": "desc",
             "values": [
                 { "value": "1737043245123" },
                 { "value": "1736952000000" },

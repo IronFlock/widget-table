@@ -66,6 +66,8 @@ interface Column {
     header: string
     type: 'string' | 'number' | 'boolean' | 'state' | 'button' | 'image' | 'timestamp' | 'edit'
     values: { value: string; link?: string }[]
+    sortDirection?: 'none' | 'asc' | 'desc' // Sort the rows by this column (see Sorting)
+    sortPriority?: number // 1 sorts first when several columns are sorted
     styling?: {
         parameterKey?: string // edit: the URL parameter the button sets
         iconName?: string // edit: Material Symbols icon name, 'edit' by default
@@ -112,6 +114,20 @@ A column of type `edit` shows one icon button per row (a pen, or `styling.iconNa
 
 The column is centred, not sortable, and as narrow as its button unless `styling.width` says otherwise.
 
+### Sorting
+
+Rows show in the order the data arrives (oldest first, from IronFlock Studio) unless columns set a `sortDirection`. Each column type sorts by what it shows: numbers by value, timestamps by time (with `timestampParseFormat` if set), booleans false first, a `state` column in the order its `stateMap` lists the states (unlisted states after, alphabetically), and text naturally and case-insensitively (`Pump 2` before `Pump 10`). Empty or unparseable cells come last in both directions, and rows that tie keep their arrival order. `image` and `edit` columns are not sortable.
+
+When several columns are sorted, `sortPriority` decides which counts first (1, then 2, …); sorted columns without one come after, left to right.
+
+```javascript
+// The alarms first (the order of the stateMap), the newest first within each state
+{ header: 'State', type: 'state', sortDirection: 'asc', sortPriority: 1, styling: { stateMap: "'FAILED': 'red', 'OK': 'green'" }, values }
+{ header: 'Time', type: 'timestamp', sortDirection: 'desc', sortPriority: 2, values }
+```
+
+The headers show the sort, with its order when there is more than one sorted column. A viewer can click a header (or press Space on it) to sort by that column alone: ascending, descending, then back to the configured sort. That choice survives data updates but not a reload or a change of the sort settings.
+
 ## Events
 
 The widget never changes the page URL itself. It asks the host to, on the element:
@@ -125,7 +141,7 @@ Both bubble and are composed.
 
 ## Features
 
-- **Sortable columns**: Click headers to sort ascending/descending
+- **Sorting**: A configured sort by one or more columns, and headers that viewers click to sort
 - **Row actions**: Links to pages or web addresses, and an edit button that hands the row to a form
 - **Resizable columns**: Drag column borders to resize
 - **Horizontal overflow**: Enable scrolling for wide tables
