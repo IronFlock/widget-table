@@ -16,30 +16,36 @@ No test framework or linter is configured. Node `>=24.9.0`, npm `>=10.0.2`.
 
 ## Architecture
 
-Single-file Lit 3 web component (`src/widget-table.ts`) wrapping `@vaadin/grid` (peer dependency, externalized in the bundle). The component is registered as `widget-table-versionplaceholder`; the Vite build replaces `versionplaceholder` with the package version via `@rollup/plugin-replace`, so the live tag is e.g. `widget-table-1.1.17`. Consumers must use the version-suffixed tag matching the installed package — this lets multiple widget versions coexist on one page in the IronFlock dashboard.
+Single-file Lit 3 web component (`src/widget-table.ts`) wrapping `@vaadin/grid` (peer dependency, externalized in the bundle), with `@material/web`'s icon button for edit columns (peer dependency, externalized too: Studio's import map provides both and loads the Material Symbols font `md-icon` draws with). The component is registered as `widget-table-versionplaceholder`; the Vite build replaces `versionplaceholder` with the package version via `@rollup/plugin-replace`, so the live tag is e.g. `widget-table-1.1.17`. Consumers must use the version-suffixed tag matching the installed package — this lets multiple widget versions coexist on one page in the IronFlock dashboard.
 
 Build pipeline (`vite.config.ts`):
 - Library mode, ES-only output, entry `src/widget-table.ts` → `dist/widget-table.js`.
-- Externalizes `lit*`, `@lit*`, `@vaadin*` so consumers provide them.
+- Externalizes `lit*`, `@lit*`, `@vaadin*` and `@material/web` so consumers provide them.
 - `tslib` aliased to `tslib/tslib.es6.js`; `process.env.NODE_ENV` defined to `"production"`.
 
 ### IronFlock platform contract
 
-The widget exposes two reactive properties consumed by the host dashboard:
+The widget exposes two reactive properties consumed by the host dashboard (it needs no `route`: it never reads the URL, only asks Studio to change it):
 - `inputData: TableConfiguration` — typed by `src/definition-schema.d.ts`, generated from `src/definition-schema.json`. The JSON schema is the source of truth for both the runtime type and the dashboard's config UI (note the non-standard `order`, `dataDrivenDisabled`, `condition.showIfValueIn`, and `color: true` keys consumed by the IronFlock config editor).
 - `theme: { theme_name, theme_object }` — ECharts-style theme object. `registerTheme()` resolves colors with this precedence: CSS custom properties (`--re-text-color`, `--re-hover-color`, `--re-border-color`) on the host element override `theme_object` values. These are not snapshotted: `registerTheme()` stores a `var(--re-…, <theme value>)` chain, so a change to the host property repaints the tile live without the widget being told. The grid paints no background of its own (`--grid-bg-color` stays unset): studio's `widget-item` already paints `--re-tile-background-color` on the tile, and painting it again here composited a translucent tile colour twice, and the grid, its rows and its cells each painting it stacked it several times. Only the sticky header is opaque: `headerSurfaceColor()` composites the tile as displayed (`--re-tile-background-color` over `--re-background-color` over white, read at render time, cached by `opaqueSurface()`), so rows scrolling under it stay hidden.
 
+The widget acts on the platform only through two events dispatched on itself (`bubbles: true, composed: true`): `param-submit` `{ params: { [key]: value } }` from an edit column's button (Studio merges the parameter into the page URL, hands every widget the new `route` and re-queries bindings whose filter uses it), and `nav-submit` `{ path }` from a `button` or `image` link to a board page. Nothing handles them in the Widget Editor's preview or the AI chat.
+
 ### Data shape and rendering
 
-`inputData.columns` is column-oriented (each column carries its own `values[]`). `transformInputData()` pivots columns into row records keyed `col_<index>` for Vaadin Grid, then reverses (newest-first). Vaadin sort paths use `col_<index>.value`.
+`inputData.columns` is column-oriented (each column carries its own `values[]`, bound separately in Studio, so rows line up by position only and a row has no identity of its own). `transformInputData()` pivots columns into row records keyed `col_<index>` for Vaadin Grid, in the order the data arrives (oldest first, as Studio delivers it). Vaadin sort paths use `col_<index>.value`.
 
-Cell rendering dispatches on `column.type` in `renderCell()`: `string`, `number` (with `precision`), `boolean`, `state` (parses `stateMap` string `"'ONLINE': 'green', ..."` into a colored `.statusbox`), `button`, `image`, `timestamp`. Timestamps use a hand-rolled Unicode LDML subset (`yyyy MM dd HH mm ss SSS`) — see `parseTimestamp` / `formatTimestamp`. If `timestampParseFormat` is empty, values are treated as Unix epoch milliseconds.
+Cell rendering dispatches on `column.type` in `renderCell()`: `string`, `number` (with `precision`), `boolean`, `state` (parses `stateMap` string `"'ONLINE': 'green', ..."` into a colored `.statusbox`), `button`, `image`, `timestamp`, `edit`.
 
-Text alignment is column-type-driven (`getTextAlign`): numbers/timestamps end, booleans/state/image center, others start.
+Links (`renderLink()`, for `button` and `image`): a link with a scheme or `//` is a web address and opens in a new tab (`rel="noopener noreferrer"`); anything else is a board page and dispatches `nav-submit`, from a real `<button>` rather than an anchor with a relative `href`, which a middle-click would open against Studio's origin. An empty link leaves the content unlinked.
+
+Edit column (`renderEditButton()`): the cell's value is the record key, sent as `param-submit` under `styling.parameterKey` (`parameterValue()` turns text, numbers and booleans into text and refuses objects); a blank key renders the button disabled with the reason as the wrapper's `title` (a disabled Material button has `pointer-events: none`, so its own title never shows). Decisions that came out of reading vaadin and Material: the column is a plain `vaadin-grid-column` (sorting by the key means nothing, and `GridSortColumnMixin` forbids a header renderer), its header is centred by `columnHeaderRenderer` with a `.cell.cell-center` div (cell content is a flex container, so vaadin's `textAlign` alone does not centre a bare header); vaadin's focus utils do not count `md-icon-button` as focusable, so the button carries `focus-target` (Enter in the cell focuses it) and the click sets `skipCellActivate` so the row's active item does not toggle; the button is sized in `em` and coloured with `currentColor` tokens (Material's 40px default would make the rows taller, and `currentColor` inside its shadow DOM resolves to the `.cell` colour chain); the default width is `calc(2 * var(--cell-padding-horizontal) + 2.5em)`. `default-data.json` has no edit column: it seeds every new tile and the AI's example, and an edit column only makes sense next to a form or a filtered widget. The demo adds one. Timestamps use a hand-rolled Unicode LDML subset (`yyyy MM dd HH mm ss SSS`) — see `parseTimestamp` / `formatTimestamp`. If `timestampParseFormat` is empty, values are treated as Unix epoch milliseconds.
+
+Text alignment is column-type-driven (`getTextAlign`): numbers/timestamps end, booleans/state/image/edit center, others start.
 
 ### Demo harness
 
-`demo/index.html` builds the tag dynamically from `package.json` version using `lit/static-html`, applies `demo/themes/light.json`, and randomizes select cell values every 1s via the external `ObjectRandomizer.js` script — useful for verifying reactivity but means the demo will not run fully offline.
+`demo/index.html` builds the tag dynamically from `package.json` version using `lit/static-html`, applies `demo/themes/light.json`, loads the Material Symbols font, adds a demo-only edit column (values from the Name column, `parameterKey: 'edit'`) and a board-page link to the default config, stands in for Studio by logging `param-submit` (mirrored into the demo URL) and `nav-submit`, and randomizes select cell values every 1s via the external `ObjectRandomizer.js` script — useful for verifying reactivity but means the demo will not run fully offline.
 
 ## Releasing
 

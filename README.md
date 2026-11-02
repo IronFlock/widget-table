@@ -10,20 +10,18 @@ A Lit 3.x web component for rendering data tables with sortable columns, powered
 npm i @ironflock/widget-table
 ```
 
-**Peer Dependencies:** This widget requires `@vaadin/grid` to be installed in your application.
+**Peer Dependencies:** This widget requires `@vaadin/grid` and `@material/web` to be installed in your application. An `edit` column draws its icon with `md-icon`, which needs the "Material Symbols Outlined" font on the page (IronFlock Studio loads it; a standalone page adds the Google Fonts link, see `demo/index.html`).
 
 ## Usage
 
-```html
-<script type="module">
-    import '@ironflock/widget-table'
-</script>
-
-<widget-table-1.2.0></widget-table-1.2.0>
-```
+The custom element's tag carries the installed version (`widget-table-<version>`), so several versions can share a page. Build it from the package's version rather than writing it out:
 
 ```javascript
-const table = document.querySelector('widget-table-1.2.0')
+import '@ironflock/widget-table'
+import { version } from '@ironflock/widget-table/package.json' with { type: 'json' }
+
+const table = document.createElement(`widget-table-${version}`)
+document.body.append(table)
 table.inputData = {
     title: 'Device Status',
     subTitle: 'Current readings',
@@ -66,9 +64,11 @@ interface TableConfiguration {
 
 interface Column {
     header: string
-    type: 'string' | 'number' | 'boolean' | 'state' | 'button' | 'image'
+    type: 'string' | 'number' | 'boolean' | 'state' | 'button' | 'image' | 'timestamp' | 'edit'
     values: { value: string; link?: string }[]
     styling?: {
+        parameterKey?: string // edit: the URL parameter the button sets
+        iconName?: string // edit: Material Symbols icon name, 'edit' by default
         precision?: number // Decimal places for number type
         stateMap?: string // e.g. "'ONLINE': 'green', 'OFFLINE': 'red'"
         width?: string // Column width e.g. '150px'
@@ -82,18 +82,51 @@ interface Column {
 
 ## Column Types
 
-| Type      | Description                                         |
-| --------- | --------------------------------------------------- |
-| `string`  | Plain text display                                  |
-| `number`  | Numeric value with optional precision formatting    |
-| `boolean` | Boolean display                                     |
-| `state`   | Status indicator with colored dot based on stateMap |
-| `button`  | Clickable button with optional link                 |
-| `image`   | Image display with optional link                    |
+| Type        | Description                                                                   |
+| ----------- | ----------------------------------------------------------------------------- |
+| `string`    | Plain text display                                                            |
+| `number`    | Numeric value with optional precision formatting                              |
+| `boolean`   | Boolean display                                                               |
+| `state`     | Status indicator with colored dot based on stateMap                           |
+| `timestamp` | Epoch milliseconds, or a `timestampParseFormat`, shown as `timestampFormat`   |
+| `button`    | The value as a link (see Links)                                               |
+| `image`     | The value as an image, with an optional link (see Links)                      |
+| `edit`      | An icon button that sends the value as a URL parameter (see Edit column)      |
+
+### Links
+
+A `button` or `image` cell's `link` opens when it is clicked. A web address (one with a scheme, such as `https://example.com`) opens in a new tab. A path without a scheme, such as `/machines/press-1`, is a board page: the widget dispatches `nav-submit` and IronFlock Studio opens the page in place (`/x` from the board root, anything else next to the current page). An empty link shows the value or image without a link.
+
+### Edit column
+
+A column of type `edit` shows one icon button per row (a pen, or `styling.iconName`) instead of its values. Bind its values to the record's key column: a click dispatches `param-submit` with that key under `styling.parameterKey`, Studio writes it into the page URL, and a `widget-form` whose "Open on URL parameter" names the same parameter opens pre-filled with the record. Any other widget on the page can follow the parameter too, with a Parameter filter on its binding. Without a `parameterKey` the button is disabled, with the reason as its tooltip; an empty value shows the empty-cell placeholder.
+
+```javascript
+{
+    header: 'Edit',
+    type: 'edit',
+    values: [{ value: 'press-1' }, { value: 'press-2' }], // bound to machine_id in Studio
+    styling: { parameterKey: 'edit' }
+}
+```
+
+The column is centred, not sortable, and as narrow as its button unless `styling.width` says otherwise.
+
+## Events
+
+The widget never changes the page URL itself. It asks the host to, on the element:
+
+| Event          | Detail                                 | When                                                           |
+| -------------- | -------------------------------------- | -------------------------------------------------------------- |
+| `param-submit` | `{ params: { [parameterKey]: value } }` | An `edit` button is clicked; Studio merges it into the page URL |
+| `nav-submit`   | `{ path }`                              | A `button` or `image` link to a board page is clicked           |
+
+Both bubble and are composed.
 
 ## Features
 
 - **Sortable columns**: Click headers to sort ascending/descending
+- **Row actions**: Links to pages or web addresses, and an edit button that hands the row to a form
 - **Resizable columns**: Drag column borders to resize
 - **Horizontal overflow**: Enable scrolling for wide tables
 - **Theme support**: Integrates with IronFlock theming system
@@ -101,10 +134,7 @@ interface Column {
 
 ## Theming
 
-The widget respects CSS custom properties:
-
-- `--re-text-color`: Text color override
-- `--re-tile-background-color`: Background color override
+The widget respects the CSS custom property `--re-text-color` (text, including the edit buttons). It paints no background of its own: the host's tile shows through.
 
 Pass a theme object for ECharts-style theming:
 
