@@ -1,4 +1,4 @@
-import { html, css, LitElement, PropertyValues, nothing } from 'lit'
+import { html, svg, css, LitElement, PropertyValues, nothing } from 'lit'
 import { repeat } from 'lit/directives/repeat.js'
 import { ifDefined } from 'lit/directives/if-defined.js'
 import { property, state, customElement } from 'lit/decorators.js'
@@ -6,7 +6,6 @@ import { TableConfiguration, Values } from './definition-schema.js'
 
 import '@vaadin/grid'
 import '@vaadin/grid/vaadin-grid-column.js'
-import '@vaadin/grid/vaadin-grid-sort-column.js'
 import { columnBodyRenderer, columnHeaderRenderer } from '@vaadin/grid/lit.js'
 import '@material/web/icon/icon.js'
 import '@material/web/iconbutton/icon-button.js'
@@ -17,10 +16,27 @@ type Theme = {
     theme_name: string
     theme_object: any
 }
+type SortDirection = 'asc' | 'desc'
+type SortKey = { col: number; direction: SortDirection }
+// A cell's place in the sort: numbers before text, undefined (empty) last.
+type SortValue = number | string | undefined
 let colorContext: CanvasRenderingContext2D | null | undefined
 
 // The icon an edit column shows while styling.iconName is empty.
 const DEFAULT_EDIT_ICON = 'edit'
+
+// The column types a table can sort by. An image's value is its URL and an
+// edit column's the hidden record key, so ordering by either means nothing.
+const SORTABLE_TYPES: Column['type'][] = ['string', 'number', 'timestamp', 'boolean', 'state', 'button']
+
+// Natural, case-insensitive text order: 'Pump 2' before 'Pump 10'.
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+const compareSortValues = (a: number | string, b: number | string): number => {
+    if (typeof a === 'string' && typeof b === 'string') return collator.compare(a, b)
+    if (typeof a !== typeof b) return typeof a === 'number' ? -1 : 1
+    return a < b ? -1 : a > b ? 1 : 0
+}
 
 // An edit column without a width of its own: its button plus the cell padding,
 // which is set on the grid as a custom property and inherits into the cells.
@@ -96,6 +112,17 @@ export class WidgetTable extends LitElement {
     @state()
     rows: RowData[] = []
 
+    /**
+     * The column a viewer sorted by clicking its header, in place of the
+     * configured sort until they click it off or the sort settings change.
+     */
+    @state() private viewerSort?: SortKey
+
+    // The rows in the order the data arrived, and the sort they are shown in.
+    private unsortedRows: RowData[] = []
+    private activeSort: SortKey[] = []
+    private sortSignature = ''
+
     @state() private themeTitleColor?: string
     @state() private themeSubtitleColor?: string
     @state() private themeRowHoverColor?: string
@@ -106,6 +133,18 @@ export class WidgetTable extends LitElement {
     update(changedProperties: Map<string, any>) {
         if (changedProperties.has('inputData')) {
             this.transformInputData()
+            // A live data update keeps the viewer's sort; a change to the
+            // sort settings brings the configured one back.
+            const signature = JSON.stringify(this.configuredSort())
+            if (signature !== this.sortSignature) {
+                this.sortSignature = signature
+                this.viewerSort = undefined
+            }
+        }
+
+        if (changedProperties.has('inputData') || changedProperties.has('viewerSort')) {
+            this.activeSort = this.effectiveSort()
+            this.rows = this.sortRows(this.unsortedRows, this.activeSort)
         }
 
         if (changedProperties.has('theme')) {
@@ -144,7 +183,7 @@ export class WidgetTable extends LitElement {
 
     transformInputData() {
         if (!this?.inputData?.columns?.length) {
-            this.rows = []
+            this.unsortedRows = []
             return
         }
 
@@ -160,7 +199,122 @@ export class WidgetTable extends LitElement {
             rows.push(row)
         }
 
-        this.rows = rows
+        this.unsortedRows = rows
+    }
+
+    isSortable(col?: Column): boolean {
+        return SORTABLE_TYPES.includes(col?.type)
+    }
+
+    /**
+     * The sort the settings ask for: every sortable column with a direction,
+     * by priority, then left to right. The editor hides the direction of an
+     * image or edit column but Studio still passes a stale one, so the type is
+     * checked here too.
+     */
+    configuredSort(): SortKey[] {
+        const keys: (SortKey & { priority: number })[] = []
+        this.inputData?.columns?.forEach((col, index) => {
+            const direction = col?.sortDirection
+            if (!this.isSortable(col) || (direction !== 'asc' && direction !== 'desc')) return
+            const priority = Number(col?.sortPriority)
+            keys.push({ col: index, direction, priority: priority >= 1 ? priority : Infinity })
+        })
+        return keys
+            .sort((a, b) => (a.priority === b.priority ? a.col - b.col : a.priority < b.priority ? -1 : 1))
+            .map(({ col, direction }) => ({ col, direction }))
+    }
+
+    /** The viewer's sort while its column can still be sorted, else the configured one. */
+    effectiveSort(): SortKey[] {
+        const viewerSort = this.viewerSort
+        return viewerSort && this.isSortable(this.inputData?.columns?.[viewerSort.col])
+            ? [viewerSort]
+            : this.configuredSort()
+    }
+
+    /**
+     * A header click: sort by that column alone, ascending, then descending,
+     * then back to the configured sort. A column the configured sort shows
+     * ascending starts at descending, so the first click always changes the
+     * order, and a choice that equals the configured sort is that sort.
+     */
+    toggleSort(col: number) {
+        const configured = this.configuredSort()
+        let next: SortKey | undefined
+        if (this.viewerSort?.col === col) {
+            next = this.viewerSort.direction === 'asc' ? { col, direction: 'desc' } : undefined
+        } else {
+            const shown = this.activeSort.find((key) => key.col === col)?.direction
+            next = { col, direction: shown === 'asc' ? 'desc' : 'asc' }
+        }
+        const [only, ...more] = configured
+        if (next && !more.length && only?.col === next.col && only.direction === next.direction)
+            next = undefined
+        this.viewerSort = next
+    }
+
+    /**
+     * How a column's cells compare, parsed the way the column displays them:
+     * numbers and timestamps by value, booleans false first, states in the
+     * order the State Map lists them (unlisted ones after, alphabetically),
+     * text naturally. An empty or unparseable cell is undefined.
+     */
+    sortValueReader(colDef?: Column): (value: unknown) => SortValue {
+        let read: (value: unknown) => SortValue
+        switch (colDef?.type) {
+            case 'number':
+                read = (value) => {
+                    const num = this.parseNumber(value)
+                    return isNaN(num) ? undefined : num
+                }
+                break
+            case 'timestamp':
+                read = (value) => this.toDate(value, colDef)?.getTime()
+                break
+            case 'boolean':
+                read = (value) => (this.isTrueValue(value) ? 1 : 0)
+                break
+            case 'state': {
+                const ranks = new Map<string, number>()
+                for (const [state] of this.parseStatePairs(colDef.styling?.stateMap)) {
+                    if (!ranks.has(state)) ranks.set(state, ranks.size)
+                }
+                read = (value) => ranks.get(String(value)) ?? String(value)
+                break
+            }
+            default:
+                read = (value) => String(value)
+        }
+        return (value) => (this.isEmptyValue(value) ? undefined : read(value))
+    }
+
+    /**
+     * The rows in the given sort. Each cell is parsed once rather than on
+     * every comparison; empty cells come last in either direction, and rows
+     * that tie keep the order the data arrived in.
+     */
+    sortRows(rows: RowData[], keys: SortKey[]): RowData[] {
+        if (!keys.length) return rows
+        const readers = keys.map(({ col }) => this.sortValueReader(this.inputData?.columns?.[col]))
+        const decorated = rows.map((row) => ({
+            row,
+            values: keys.map(({ col }, k) => readers[k](row[`col_${col}`]?.value))
+        }))
+        decorated.sort((a, b) => {
+            for (let k = 0; k < keys.length; k++) {
+                const x = a.values[k]
+                const y = b.values[k]
+                if (x === undefined || y === undefined) {
+                    if (x === y) continue
+                    return x === undefined ? 1 : -1
+                }
+                const order = compareSortValues(x, y)
+                if (order) return keys[k].direction === 'desc' ? -order : order
+            }
+            return 0
+        })
+        return decorated.map(({ row }) => row)
     }
 
     /**
@@ -241,21 +395,28 @@ export class WidgetTable extends LitElement {
         return html`${value}`
     }
 
+    parseNumber(value: any): number {
+        return typeof value === 'number' ? value : parseFloat(value)
+    }
+
     renderNumber(value: any, colDef: Column) {
         if (this.isEmptyValue(value)) return this.renderEmptyValue()
-        const num = typeof value === 'number' ? value : parseFloat(value)
+        const num = this.parseNumber(value)
         if (isNaN(num)) return this.renderEmptyValue()
         const precision = colDef?.styling?.precision ?? 0
         return html`${num.toFixed(precision)}`
     }
 
-    renderBoolean(value: any, colDef: Column) {
-        if (this.isEmptyValue(value)) return this.renderEmptyValue()
+    isTrueValue(value: unknown): boolean {
         // Values arrive from the data source as strings, so 'false'/'0'/'no'
         // must not be treated as truthy.
         const falsy = ['false', '0', 'no', 'off']
-        const isTrue = typeof value === 'string' ? !falsy.includes(value.trim().toLowerCase()) : !!value
-        return html`${isTrue ? '✓' : '-'}`
+        return typeof value === 'string' ? !falsy.includes(value.trim().toLowerCase()) : !!value
+    }
+
+    renderBoolean(value: any, colDef: Column) {
+        if (this.isEmptyValue(value)) return this.renderEmptyValue()
+        return html`${this.isTrueValue(value) ? '✓' : '-'}`
     }
 
     /**
@@ -266,6 +427,15 @@ export class WidgetTable extends LitElement {
      * fallback color.
      */
     parseStateMap(stateMap?: string): { [key: string]: string } {
+        return Object.fromEntries(this.parseStatePairs(stateMap))
+    }
+
+    /**
+     * The State Map's [state, colour] pairs in the order written, which is a
+     * state column's sort order. An object cannot keep it: it lists keys like
+     * '1' and '2' first, in numeric order.
+     */
+    parseStatePairs(stateMap?: string): [string, string][] {
         const tokens =
             stateMap
                 ?.split(/[,:]/)
@@ -277,11 +447,11 @@ export class WidgetTable extends LitElement {
                 )
                 .filter((token: string) => token !== '') ?? []
 
-        const map: { [key: string]: string } = {}
+        const pairs: [string, string][] = []
         for (let i = 0; i + 1 < tokens.length; i += 2) {
-            map[tokens[i]] = tokens[i + 1]
+            pairs.push([tokens[i], tokens[i + 1]])
         }
-        return map
+        return pairs
     }
 
     renderState(value: any, colDef: Column) {
@@ -359,11 +529,9 @@ export class WidgetTable extends LitElement {
         </span>`
     }
 
-    renderTimestamp(value: any, colDef: Column) {
-        if (this.isEmptyValue(value)) return this.renderEmptyValue()
-
+    /** A timestamp cell's date, or undefined when it does not parse. */
+    toDate(value: any, colDef: Column): Date | undefined {
         const parseFormat = colDef.styling?.timestampParseFormat
-        const displayFormat = colDef.styling?.timestampFormat
 
         let date: Date
 
@@ -373,12 +541,20 @@ export class WidgetTable extends LitElement {
         } else {
             // Default: expect Unix epoch milliseconds
             const timestamp = typeof value === 'number' ? value : parseInt(value, 10)
-            if (isNaN(timestamp)) return this.renderEmptyValue()
+            if (isNaN(timestamp)) return undefined
             date = new Date(timestamp)
         }
 
-        if (isNaN(date.getTime())) return this.renderEmptyValue()
+        return isNaN(date.getTime()) ? undefined : date
+    }
 
+    renderTimestamp(value: any, colDef: Column) {
+        if (this.isEmptyValue(value)) return this.renderEmptyValue()
+
+        const date = this.toDate(value, colDef)
+        if (!date) return this.renderEmptyValue()
+
+        const displayFormat = colDef.styling?.timestampFormat
         if (displayFormat) {
             return html`${this.formatTimestamp(date, displayFormat)}`
         }
@@ -399,21 +575,25 @@ export class WidgetTable extends LitElement {
         }
 
         let regexStr = format.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
-        const tokens: string[] = []
-
-        for (const token of ['yyyy', 'SSS', 'MM', 'dd', 'HH', 'mm', 'ss']) {
-            if (regexStr.includes(token)) {
-                regexStr = regexStr.replace(token, formatTokens[token].regex)
-                tokens.push(token)
-            }
+        // Setter order: the year before the month before the day, so that
+        // 29.02.2024 is not first set in 1970, where February has 28 days.
+        const tokens = ['yyyy', 'SSS', 'MM', 'dd', 'HH', 'mm', 'ss'].filter((token) =>
+            regexStr.includes(token)
+        )
+        for (const token of tokens) {
+            regexStr = regexStr.replace(token, formatTokens[token].regex)
         }
 
         const match = value.match(new RegExp(`^${regexStr}$`))
         if (!match) return new Date(NaN)
 
-        const date = new Date(0)
-        tokens.forEach((token, i) => {
-            formatTokens[token].setter(date, parseInt(match[i + 1], 10))
+        // The capture groups come in the order the format writes the tokens.
+        const groups = [...tokens].sort((a, b) => format.indexOf(a) - format.indexOf(b))
+        // Midnight on 1 January in local time: new Date(0) is 31 December
+        // west of UTC, where setting a 30-day month would overflow.
+        const date = new Date(1970, 0, 1)
+        tokens.forEach((token) => {
+            formatTokens[token].setter(date, parseInt(match[groups.indexOf(token) + 1], 10))
         })
 
         return date
@@ -532,11 +712,6 @@ export class WidgetTable extends LitElement {
 
         vaadin-grid::part(odd-row-cell) {
             background: var(--grid-bg-color, transparent);
-        }
-
-        vaadin-grid-sorter {
-            flex: 1;
-            justify-content: inherit;
         }
 
         vaadin-grid-cell-content {
@@ -660,6 +835,64 @@ export class WidgetTable extends LitElement {
             outline: auto;
         }
 
+        /* A sortable column's header, laid out by .cell. The indicator is
+           vaadin's sorter glyph in the header's own colour, so it follows the
+           board's text colour: faint until hovered or sorted, and a sorted
+           one at full strength, since vaadin's 68% hardly stands out from
+           the unsorted 48% on a dark tile. */
+        .sort-button {
+            gap: 8px;
+            margin: 0;
+            padding: 0;
+            border: 0;
+            background: none;
+            color: inherit;
+            font: inherit;
+            text-align: inherit;
+            cursor: pointer;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .sort-button:focus-visible {
+            outline: auto;
+        }
+
+        .header-text {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .sort-indicator {
+            flex: none;
+            display: inline-flex;
+            align-items: center;
+            color: color-mix(in oklab, currentColor 48%, transparent);
+        }
+
+        .sort-indicator.sorted {
+            color: inherit;
+        }
+
+        @media (any-hover: hover) {
+            .sort-button:hover .sort-indicator {
+                color: inherit;
+            }
+        }
+
+        .sort-indicator svg {
+            width: 8px;
+            height: 12px;
+            fill: currentColor;
+        }
+
+        .sort-order {
+            align-self: flex-start;
+            font-size: 0.75em;
+            line-height: 1;
+        }
+
         /* An edit column's icon button, sized by the cell's font (Material's
            40px button would make these rows taller than text rows) and
            coloured by the cell's text: currentColor, substituted into
@@ -702,13 +935,48 @@ export class WidgetTable extends LitElement {
     }
 
     /**
-     * The body renderer of a column: the cell's content in the column's font
-     * and colour. An edit column is a plain vaadin-grid-column (sorting by the
-     * record key means nothing, and the sort column forbids a header renderer)
-     * whose header is centred by a renderer: the cell content is a flex
-     * container (see the styles), so vaadin's textAlign alone does not centre
-     * a bare header text.
+     * The header renderer of a column. The widget sorts the rows itself and
+     * draws its own sort header, because vaadin's sort column ranks sorted
+     * columns by the order they were sorted in (column order, on first
+     * render), which cannot express a configured priority, and compares raw
+     * strings, so '100' would sort before '20'. The header is aligned like the
+     * column by a .cell element: the cell content is a flex container (see
+     * the styles), so vaadin's textAlign alone does not align a bare header
+     * text. A sortable header is a button as the content's first element:
+     * Space on a focused header cell clicks that element and Enter focuses it.
      */
+    private headerRenderer(col: Column, colIndex: number) {
+        const align = this.getTextAlign(col)
+        if (!this.isSortable(col)) return () => html`<div class="cell cell-${align}">${col?.header}</div>`
+
+        const position = this.activeSort.findIndex((key) => key.col === colIndex)
+        const direction = this.activeSort[position]?.direction
+        const order = direction && this.activeSort.length > 1 ? position + 1 : undefined
+        const name = String(col?.header ?? '').trim() || `Column ${colIndex + 1}`
+        const label = direction
+            ? `${name}, sorted ${direction === 'asc' ? 'ascending' : 'descending'}${order ? `, priority ${order}` : ''}`
+            : undefined
+        return () => html`
+            <button
+                type="button"
+                class="cell cell-${align} sort-button"
+                focus-target
+                aria-label=${ifDefined(label)}
+                @click=${() => this.toggleSort(colIndex)}
+            >
+                <span class="header-text">${col?.header}</span>
+                <span class="sort-indicator ${direction ? 'sorted' : ''}" aria-hidden="true">
+                    <svg viewBox="0 0 8 12">
+                        ${direction !== 'desc' ? svg`<path d="M4 0 8 5H0Z" />` : nothing}
+                        ${direction !== 'asc' ? svg`<path d="M0 7H8L4 12Z" />` : nothing}
+                    </svg>
+                    ${order ? html`<span class="sort-order">${order}</span>` : nothing}
+                </span>
+            </button>
+        `
+    }
+
+    /** The body renderer of a column: the cell's content in the column's font and colour. */
     private cellRenderer(col: Column, colIndex: number) {
         return (item: RowData) => html`
             <div
@@ -759,44 +1027,34 @@ export class WidgetTable extends LitElement {
                     >
                         ${repeat(
                             columns,
-                            (col, i) => `${col.header}-${i}`,
-                            (col, colIndex) =>
-                                col?.type === 'edit'
-                                    ? html`
-                                          <vaadin-grid-column
-                                              .flexGrow=${0}
-                                              width=${col.styling?.width || EDIT_COLUMN_WIDTH}
-                                              resizable
-                                              .textAlign=${'center'}
-                                              ${columnHeaderRenderer(
-                                                  () =>
-                                                      html`<div class="cell cell-center">${col.header}</div>`,
-                                                  [col.header]
-                                              )}
-                                              ${columnBodyRenderer<RowData>(
-                                                  this.cellRenderer(col, colIndex),
-                                                  [colIndex, col, this.themeTitleColor]
-                                              )}
-                                          ></vaadin-grid-column>
-                                      `
-                                    : html`
-                                          <vaadin-grid-sort-column
-                                              .flexGrow=${col.styling?.width ? 0 : 1}
-                                              width=${ifDefined(
-                                                  col.styling?.width ? `${col.styling.width}` : undefined
-                                              )}
-                                              ?autoWidth=${this.inputData?.horizontalOverflow &&
-                                              !col.styling?.width}
-                                              resizable
-                                              .textAlign=${this.getTextAlign(col)}
-                                              .header=${col.header}
-                                              path=${`col_${colIndex}.value`}
-                                              ${columnBodyRenderer<RowData>(
-                                                  this.cellRenderer(col, colIndex),
-                                                  [colIndex, col, this.themeTitleColor]
-                                              )}
-                                          ></vaadin-grid-sort-column>
-                                      `
+                            (col, i) => `${col?.header}-${i}`,
+                            (col, colIndex) => {
+                                // An edit column is as narrow as its button unless it has a width.
+                                const width =
+                                    col?.styling?.width ||
+                                    (col?.type === 'edit' ? EDIT_COLUMN_WIDTH : undefined)
+                                const position = this.activeSort.findIndex((key) => key.col === colIndex)
+                                return html`
+                                    <vaadin-grid-column
+                                        .flexGrow=${width ? 0 : 1}
+                                        width=${ifDefined(width)}
+                                        ?autoWidth=${this.inputData?.horizontalOverflow && !width}
+                                        resizable
+                                        .textAlign=${this.getTextAlign(col)}
+                                        ${columnHeaderRenderer(this.headerRenderer(col, colIndex), [
+                                            col?.header,
+                                            col?.type,
+                                            this.activeSort[position]?.direction,
+                                            this.activeSort.length > 1 ? position : -1
+                                        ])}
+                                        ${columnBodyRenderer<RowData>(this.cellRenderer(col, colIndex), [
+                                            colIndex,
+                                            col,
+                                            this.themeTitleColor
+                                        ])}
+                                    ></vaadin-grid-column>
+                                `
+                            }
                         )}
                     </vaadin-grid>
                 </div>

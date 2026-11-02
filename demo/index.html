@@ -49,14 +49,18 @@
             import themeObject from './themes/light.json'
 
             // Demo-only additions (default-data.json seeds every new tile): a
-            // link to a board page in the Link column, and an edit column whose
-            // values are the Name column's, the record key it hands over.
+            // link to a board page in the Link column, an edit column whose
+            // values are the Name column's, the record key it hands over, and a
+            // sort by State Map order, then the longest distance, then the
+            // default config's newest Last Update.
             // Remove the parameterKey to see the disabled button and its tip.
             const columns = data.columns.map((col) => ({
                 ...col,
                 values: col.values.map((cell) => ({ ...cell }))
             }))
             columns[5].values[1].link = '/machines/mayflower'
+            Object.assign(columns[0], { sortDirection: 'asc', sortPriority: 1 })
+            Object.assign(columns[2], { sortDirection: 'desc', sortPriority: 2 })
             columns.push({
                 header: 'Edit',
                 type: 'edit',
