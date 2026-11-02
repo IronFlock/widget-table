@@ -27,6 +27,13 @@
                 height: 100%;
             }
         </style>
+        <!-- The icon font of md-icon, which Studio's page loads. -->
+        <link
+            rel="preload"
+            href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL@20..48,100..700,0..1"
+            as="style"
+            onload="this.onload=null;this.rel='stylesheet'"
+        />
     </head>
 
     <body>
@@ -41,11 +48,28 @@
             import data from '../src/default-data.json'
             import themeObject from './themes/light.json'
 
+            // Demo-only additions (default-data.json seeds every new tile): a
+            // link to a board page in the Link column, and an edit column whose
+            // values are the Name column's, the record key it hands over.
+            // Remove the parameterKey to see the disabled button and its tip.
+            const columns = data.columns.map((col) => ({
+                ...col,
+                values: col.values.map((cell) => ({ ...cell }))
+            }))
+            columns[5].values[1].link = '/machines/mayflower'
+            columns.push({
+                header: 'Edit',
+                type: 'edit',
+                values: columns[1].values.map(({ value }) => ({ value })),
+                styling: { parameterKey: 'edit' }
+            })
+            const demoData = { ...data, columns }
+
             const tag = unsafeStatic(`widget-table-${packageJson.version}`)
             const theme = { theme_name: 'light', theme_object: themeObject }
             render(
                 html`
-                    <${tag} .theme="${theme}" .inputData=${data}>
+                    <${tag} .theme="${theme}" .inputData=${demoData}>
                         web component is not registered. Make sure to use the tag with the correct version
                         string from the package.json
                     </${tag}>
@@ -53,10 +77,24 @@
                 document.getElementById('demo')
             )
             const widget = document.getElementById('demo').children[0]
-            console.log('data', data)
+            console.log('data', demoData)
+
+            // A stand-in for Studio, which merges param-submit into the page URL
+            // (undefined deletes a key) and opens the page a nav-submit names.
+            widget.addEventListener('param-submit', (event) => {
+                console.log('param-submit', event.detail.params)
+                const url = new URL(location.href)
+                for (const [key, value] of Object.entries(event.detail.params ?? {})) {
+                    if (value === undefined || value === null) url.searchParams.delete(key)
+                    else url.searchParams.set(key, value)
+                }
+                history.replaceState(null, '', url)
+            })
+            widget.addEventListener('nav-submit', (event) => console.log('nav-submit', event.detail.path))
+
             const keyPathsToRandomize = ['columns.1.values.0.value', 'columns.2.values.0.value']
             const inter = setInterval(() => {
-                const randomizedObj = randomizeObjectValues(data, keyPathsToRandomize)
+                const randomizedObj = randomizeObjectValues(demoData, keyPathsToRandomize)
 
                 // console.log('random', randomizedObj.dataseries[0].data[0])
                 widget.inputData = randomizedObj

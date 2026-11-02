@@ -5,8 +5,11 @@ import { property, state, customElement } from 'lit/decorators.js'
 import { TableConfiguration, Values } from './definition-schema.js'
 
 import '@vaadin/grid'
+import '@vaadin/grid/vaadin-grid-column.js'
 import '@vaadin/grid/vaadin-grid-sort-column.js'
-import { columnBodyRenderer } from '@vaadin/grid/lit.js'
+import { columnBodyRenderer, columnHeaderRenderer } from '@vaadin/grid/lit.js'
+import '@material/web/icon/icon.js'
+import '@material/web/iconbutton/icon-button.js'
 
 type Column = Exclude<TableConfiguration['columns'], undefined>[number]
 type RowData = { [key: string]: Values[number] }
@@ -15,6 +18,17 @@ type Theme = {
     theme_object: any
 }
 let colorContext: CanvasRenderingContext2D | null | undefined
+
+// The icon an edit column shows while styling.iconName is empty.
+const DEFAULT_EDIT_ICON = 'edit'
+
+// An edit column without a width of its own: its button plus the cell padding,
+// which is set on the grid as a custom property and inherits into the cells.
+const EDIT_COLUMN_WIDTH = 'calc(2 * var(--cell-padding-horizontal, 16px) + 2.5em)'
+
+// A link with a scheme (https:, mailto:) or a protocol-relative one is a web
+// address; anything else is the path of a board page for Studio to open.
+const isExternalLink = (link: string): boolean => /^[a-z][a-z0-9+.-]*:|^\/\//i.test(link)
 
 // A colour as [r, g, b, alpha] in sRGB (channels 0-255), parsed by the browser
 // itself through a canvas's fillStyle, so names, hsl(), hex with alpha,
@@ -166,6 +180,36 @@ export class WidgetTable extends LitElement {
         return html`<span class="empty-value">–</span>`
     }
 
+    /**
+     * The value an edit button sends: text, a number or a boolean, as text.
+     * Nothing for an empty cell, and nothing for an object (a JSON column),
+     * which could only arrive as "[object Object]".
+     */
+    parameterValue(value: unknown): string | undefined {
+        if (this.isEmptyValue(value) || typeof value === 'object') return undefined
+        return String(value).trim() || undefined
+    }
+
+    /**
+     * Ask Studio to set a URL parameter. Studio merges it into the page URL,
+     * hands every widget on the page the new route and re-queries bindings
+     * whose filter uses the parameter. The widget never touches the URL.
+     */
+    submitParameter(key: string, value: string) {
+        this.dispatchEvent(
+            new CustomEvent('param-submit', {
+                detail: { params: { [key]: value } },
+                bubbles: true,
+                composed: true
+            })
+        )
+    }
+
+    /** Ask Studio to open a board page: `/x` from the board root, else next to the current page. */
+    navigate(path: string) {
+        this.dispatchEvent(new CustomEvent('nav-submit', { detail: { path }, bubbles: true, composed: true }))
+    }
+
     renderCell(cell: Values[number], colIndex: number) {
         const colDef = this?.inputData?.columns?.[colIndex]
         if (!colDef) return nothing
@@ -183,6 +227,8 @@ export class WidgetTable extends LitElement {
                 return this.renderButton(cell, colDef)
             case 'image':
                 return this.renderImage(cell, colDef)
+            case 'edit':
+                return this.renderEditButton(cell, colDef)
             case 'timestamp':
                 return this.renderTimestamp(cell?.value, colDef)
             default:
@@ -250,14 +296,67 @@ export class WidgetTable extends LitElement {
             : html`<div class="statusbox statusbox-unmapped"></div>`
     }
 
+    /**
+     * A cell's content in its link. A web address opens in a new tab; a path,
+     * such as /machines/press-1, is a board page that Studio opens in place
+     * (nav-submit). The page link is a real button rather than an anchor with
+     * a relative href: a middle-click on that anchor would open the path
+     * against Studio's origin in a new tab, where it is no page. No link
+     * leaves the content as it is.
+     */
+    renderLink(content: unknown, link: unknown) {
+        const href = typeof link === 'string' ? link.trim() : ''
+        if (!href) return html`${content}`
+        if (isExternalLink(href))
+            return html`<a href=${href} target="_blank" rel="noopener noreferrer">${content}</a>`
+        return html`<button type="button" class="link-button" @click=${() => this.navigate(href)}>
+            ${content}
+        </button>`
+    }
+
     renderButton(cell: Values[number], colDef: Column) {
         if (this.isEmptyValue(cell?.value)) return this.renderEmptyValue()
-        return html`<a href="${cell?.link ?? ''}" target="_blank">${cell?.value}</a>`
+        return this.renderLink(cell?.value, cell?.link)
     }
 
     renderImage(cell: Values[number], colDef: Column) {
         if (this.isEmptyValue(cell?.value)) return this.renderEmptyValue()
-        return html`<a href="${cell?.link ?? ''}" target="_blank"><img src="${cell.value}" /></a>`
+        return this.renderLink(html`<img src="${cell.value}" />`, cell?.link)
+    }
+
+    /**
+     * An edit column's cell: an icon button that hands the row's value, the
+     * record key, to Studio as a URL parameter (param-submit), for a form that
+     * opens on that parameter or a widget filtering on it. Without a key the
+     * button is disabled, with the reason as a tooltip on the wrapper: a
+     * disabled Material button has pointer-events: none, so a title on the
+     * button itself never shows. vaadin-grid does not count md-icon-button as
+     * focusable: focus-target lets Enter in the cell reach it, and
+     * skipCellActivate keeps the click from also toggling the row's active
+     * item. The label names the row, so screen readers can tell the buttons
+     * apart.
+     */
+    renderEditButton(cell: Values[number], colDef: Column) {
+        const value = this.parameterValue(cell?.value)
+        if (value === undefined) return this.renderEmptyValue()
+        const key = String(colDef.styling?.parameterKey ?? '').trim()
+        const icon = String(colDef.styling?.iconName ?? '').trim() || DEFAULT_EDIT_ICON
+        const label = String(colDef.header ?? '').trim() || 'Edit'
+        return html`<span
+            class="edit-button"
+            title=${key ? nothing : "Set the column's URL Parameter Key to enable this button"}
+        >
+            <md-icon-button
+                focus-target
+                ?disabled=${!key}
+                aria-label="${label} ${value}"
+                @click=${(event: Event) => {
+                    ;(event as Event & { skipCellActivate?: boolean }).skipCellActivate = true
+                    if (key) this.submitParameter(key, value)
+                }}
+                ><md-icon>${icon}</md-icon></md-icon-button
+            >
+        </span>`
     }
 
     renderTimestamp(value: any, colDef: Column) {
@@ -346,6 +445,7 @@ export class WidgetTable extends LitElement {
             case 'boolean':
             case 'state':
             case 'image':
+            case 'edit':
                 return 'center'
             default:
                 return 'start'
@@ -546,6 +646,43 @@ export class WidgetTable extends LitElement {
             color: inherit;
             text-decoration: underline;
         }
+
+        /* A button column's link to a board page, drawn like the anchors. */
+        .link-button {
+            all: unset;
+            cursor: pointer;
+            color: inherit;
+            font: inherit;
+            text-decoration: underline;
+        }
+
+        .link-button:focus-visible {
+            outline: auto;
+        }
+
+        /* An edit column's icon button, sized by the cell's font (Material's
+           40px button would make these rows taller than text rows) and
+           coloured by the cell's text: currentColor, substituted into
+           Material's shadow DOM, resolves to the .cell colour chain, so a
+           board style edit repaints it. The focus ring's default is a Material
+           system colour that is invisible on a dark tile. */
+        .edit-button {
+            display: inline-flex;
+        }
+
+        md-icon-button {
+            --md-icon-button-icon-size: 1.25em;
+            --md-icon-button-state-layer-width: 2em;
+            --md-icon-button-state-layer-height: 2em;
+            --md-icon-button-icon-color: currentColor;
+            --md-icon-button-hover-icon-color: currentColor;
+            --md-icon-button-focus-icon-color: currentColor;
+            --md-icon-button-pressed-icon-color: currentColor;
+            --md-icon-button-disabled-icon-color: currentColor;
+            --md-icon-button-hover-state-layer-color: currentColor;
+            --md-icon-button-pressed-state-layer-color: currentColor;
+            --md-focus-ring-color: currentColor;
+        }
     `
 
     /**
@@ -562,6 +699,26 @@ export class WidgetTable extends LitElement {
         const dashboard = style.getPropertyValue('--re-background-color').trim()
         const themeBg = String(this.theme?.theme_object?.backgroundColor ?? '')
         return opaqueSurface(dashboard ? [dashboard, tile || themeBg] : [themeBg, tile])
+    }
+
+    /**
+     * The body renderer of a column: the cell's content in the column's font
+     * and colour. An edit column is a plain vaadin-grid-column (sorting by the
+     * record key means nothing, and the sort column forbids a header renderer)
+     * whose header is centred by a renderer: the cell content is a flex
+     * container (see the styles), so vaadin's textAlign alone does not centre
+     * a bare header text.
+     */
+    private cellRenderer(col: Column, colIndex: number) {
+        return (item: RowData) => html`
+            <div
+                class="cell cell-${this.getTextAlign(col)}"
+                style="font-size: ${col.styling?.fontSize}; font-weight: ${col.styling
+                    ?.fontWeight}; color: ${col.styling?.color || this.themeTitleColor}"
+            >
+                ${this.renderCell(item[`col_${colIndex}`], colIndex)}
+            </div>
+        `
     }
 
     render() {
@@ -603,32 +760,43 @@ export class WidgetTable extends LitElement {
                         ${repeat(
                             columns,
                             (col, i) => `${col.header}-${i}`,
-                            (col, colIndex) => html`
-                                <vaadin-grid-sort-column
-                                    .flexGrow=${col.styling?.width ? 0 : 1}
-                                    width=${ifDefined(
-                                        col.styling?.width ? `${col.styling.width}` : undefined
-                                    )}
-                                    ?autoWidth=${this.inputData?.horizontalOverflow && !col.styling?.width}
-                                    resizable
-                                    .textAlign=${this.getTextAlign(col)}
-                                    .header=${col.header}
-                                    path=${`col_${colIndex}.value`}
-                                    ${columnBodyRenderer<RowData>(
-                                        (item) => html`
-                                            <div
-                                                class="cell cell-${this.getTextAlign(col)}"
-                                                style="font-size: ${col.styling?.fontSize}; font-weight: ${col
-                                                    .styling?.fontWeight}; color: ${col.styling?.color ||
-                                                this.themeTitleColor}"
-                                            >
-                                                ${this.renderCell(item[`col_${colIndex}`], colIndex)}
-                                            </div>
-                                        `,
-                                        [colIndex, col, this.themeTitleColor]
-                                    )}
-                                ></vaadin-grid-sort-column>
-                            `
+                            (col, colIndex) =>
+                                col?.type === 'edit'
+                                    ? html`
+                                          <vaadin-grid-column
+                                              .flexGrow=${0}
+                                              width=${col.styling?.width || EDIT_COLUMN_WIDTH}
+                                              resizable
+                                              .textAlign=${'center'}
+                                              ${columnHeaderRenderer(
+                                                  () =>
+                                                      html`<div class="cell cell-center">${col.header}</div>`,
+                                                  [col.header]
+                                              )}
+                                              ${columnBodyRenderer<RowData>(
+                                                  this.cellRenderer(col, colIndex),
+                                                  [colIndex, col, this.themeTitleColor]
+                                              )}
+                                          ></vaadin-grid-column>
+                                      `
+                                    : html`
+                                          <vaadin-grid-sort-column
+                                              .flexGrow=${col.styling?.width ? 0 : 1}
+                                              width=${ifDefined(
+                                                  col.styling?.width ? `${col.styling.width}` : undefined
+                                              )}
+                                              ?autoWidth=${this.inputData?.horizontalOverflow &&
+                                              !col.styling?.width}
+                                              resizable
+                                              .textAlign=${this.getTextAlign(col)}
+                                              .header=${col.header}
+                                              path=${`col_${colIndex}.value`}
+                                              ${columnBodyRenderer<RowData>(
+                                                  this.cellRenderer(col, colIndex),
+                                                  [colIndex, col, this.themeTitleColor]
+                                              )}
+                                          ></vaadin-grid-sort-column>
+                                      `
                         )}
                     </vaadin-grid>
                 </div>

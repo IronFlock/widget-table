@@ -1,19 +1,21 @@
 {
     "title": "Table Configuration",
-    "description": "A data table widget for displaying structured information in rows and columns. Use this widget to present lists, records, or any tabular data with customizable column types and formatting. Supports multiple column types: plain text, numbers with precision control, timestamps with format parsing, state indicators with color mapping, boolean values, clickable buttons with links, and images. Features include column width control, cell styling, horizontal overflow for wide tables, and header/cell separators. Ideal for device lists, event logs, inventory tables, status dashboards, or any scenario requiring organized data presentation in a grid format.",
+    "description": "A data table widget for displaying structured information in rows and columns. Use this widget to present lists, records, or any tabular data with customizable column types and formatting. Supports multiple column types: plain text, numbers with precision control, timestamps with format parsing, state indicators with color mapping, boolean values, clickable buttons with links, images, and edit buttons that hand a row's key to a form or another widget on the page through a URL parameter. Features include column width control, cell styling, horizontal overflow for wide tables, and header/cell separators.",
     "aiSelection": {
-        "dataShape": "Rows and columns. Each columns[] entry binds one column of the source data and declares how to render it — string, number with precision, timestamp with format, boolean, state with a colour map, image, or a clickable button with a link. The row count is whatever the query returns.",
+        "dataShape": "Rows and columns. Each columns[] entry binds one column of the source data and declares how to render it — string, number with precision, timestamp with format, boolean, state with a colour map, image, or a clickable button with a link. The row count is whatever the query returns. An 'edit' column shows one icon button per row: its values are the record key, and a click writes that key into the page URL under styling.parameterKey, so a widget-form opening on that parameter, or any widget filtering on it, shows the clicked record.",
         "useWhen": [
             "The user needs to read individual records — event logs, device inventories, order lists, alarm histories.",
             "More than two or three fields per row matter, so no chart can carry them all.",
             "Exact values matter more than trends or comparisons.",
-            "Each row should offer a link or action of its own (a column of type 'button')."
+            "Each row should offer a link or action of its own (a column of type 'button').",
+            "Each row needs an edit or open action that hands the record to another widget on the page — a column of type 'edit' with styling.parameterKey, next to a widget-form opening on that parameter or a detail widget bound with a Parameter filter on that key."
         ],
         "notFor": [
             "Spotting a trend, comparing magnitudes, or seeing a distribution — use widget-linechart; a table makes the reader do the work a chart does for them.",
             "One number that matters more than the rest — use widget-value, or widget-gauge to read it against a range.",
             "Shares of a total — use widget-doughnut when the parts are a fixed set that arrive as columns of one row (or as one value each); when the parts are rows of the result (one row per cause or program), use widget-linechart with dataseries[].type: 'bar'.",
-            "Text written by hand rather than queried — use widget-markdown."
+            "Text written by hand rather than queried — use widget-markdown.",
+            "Entering or changing a record's fields — use widget-form; an 'edit' column only selects the record for a form on the same page."
         ]
     },
     "type": "object",
@@ -91,8 +93,9 @@
                     },
                     "type": {
                         "title": "Column Type",
-                        "description": "Determines how cell values are rendered: 'string' for plain text, 'number' for numeric values with precision, 'boolean' for true/false display, 'state' for colored status indicators, 'timestamp' for formatted dates, 'button' for clickable actions, 'image' for displaying images.",
-                        "enum": ["state", "string", "number", "boolean", "button", "image", "timestamp"],
+                        "description": "Determines how cell values are rendered: 'string' for plain text, 'number' for numeric values with precision, 'boolean' for true/false display, 'state' for colored status indicators, 'timestamp' for formatted dates, 'button' for clickable actions, 'image' for displaying images, 'edit' for an icon button that writes the row's value (its record key) into a URL parameter, so a form that opens on that parameter, or any widget filtering on it, shows that record.",
+                        "enum": ["state", "string", "number", "boolean", "button", "image", "timestamp", "edit"],
+                        "enumLabels": ["State", "String", "Number", "Boolean", "Button", "Image", "Timestamp", "Edit button"],
                         "type": "string",
                         "dataDrivenDisabled": true,
                         "order": 2
@@ -107,14 +110,14 @@
                             "properties": {
                                 "value": {
                                     "title": "Display Value",
-                                    "description": "The cell value to display. For images, this is the image URL. For buttons, this is the button label. For other types, this is the raw value to be formatted according to column type.",
+                                    "description": "The cell value to display. For images, this is the image URL. For buttons, this is the button label. For edit columns, this is the record key the button sends as the URL parameter; it is not displayed. For other types, this is the raw value to be formatted according to column type.",
                                     "type": "string",
                                     "required": true,
                                     "order": 1
                                 },
                                 "link": {
                                     "title": "Link URL",
-                                    "description": "Navigation URL for button and image columns. For buttons, clicking navigates to this URL. For images, clicking the image opens this link. Can be absolute URLs or relative paths for dashboard navigation.",
+                                    "description": "Link of a button or image column, opened when the button or image is clicked. An absolute URL (with a scheme, such as https://example.com) opens in a new tab; a path without a scheme, such as /machines/press-1, opens that board page in place. Leave it empty for no link.",
                                     "type": "string",
                                     "condition": {
                                         "relativePath": "../../../type",
@@ -129,10 +132,32 @@
 
                     "styling": {
                         "title": "Styling",
-                        "description": "Visual styling options specific to this column. Settings depend on the column type.",
+                        "description": "Type-specific settings and visual styling for this column. Settings depend on the column type.",
                         "type": "object",
                         "order": 5,
                         "properties": {
+                            "parameterKey": {
+                                "title": "URL Parameter Key",
+                                "description": "For 'edit' columns: the URL parameter the button sets to the cell's value, such as 'edit'. Required: without it the button is shown disabled. Use the same name as the Open on URL parameter setting of the form, or the Parameter filter of the widgets, on this page that should show the clicked record.",
+                                "type": "string",
+                                "condition": {
+                                    "relativePath": "../../type",
+                                    "showIfValueIn": ["edit"]
+                                },
+                                "dataDrivenDisabled": true,
+                                "order": 1
+                            },
+                            "iconName": {
+                                "title": "Icon",
+                                "description": "For 'edit' columns: the Material Symbols icon name shown on the button, such as 'edit', 'open_in_new', 'visibility' or 'tune'. Empty means 'edit' (a pen).",
+                                "type": "string",
+                                "condition": {
+                                    "relativePath": "../../type",
+                                    "showIfValueIn": ["edit"]
+                                },
+                                "dataDrivenDisabled": true,
+                                "order": 2
+                            },
                             "timestampParseFormat": {
                                 "title": "Timestamp Parse Format",
                                 "description": "Format string for parsing input timestamp values using Unicode LDML standard (e.g., 'yyyy-MM-dd HH:mm:ss.SSS'). Leave empty if timestamps are Unix epoch milliseconds (JavaScript timestamps).",

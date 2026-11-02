@@ -38,15 +38,15 @@ export type CellPaddingVertical = string;
  */
 export type HeaderLabel = string;
 /**
- * Determines how cell values are rendered: 'string' for plain text, 'number' for numeric values with precision, 'boolean' for true/false display, 'state' for colored status indicators, 'timestamp' for formatted dates, 'button' for clickable actions, 'image' for displaying images.
+ * Determines how cell values are rendered: 'string' for plain text, 'number' for numeric values with precision, 'boolean' for true/false display, 'state' for colored status indicators, 'timestamp' for formatted dates, 'button' for clickable actions, 'image' for displaying images, 'edit' for an icon button that writes the row's value (its record key) into a URL parameter, so a form that opens on that parameter, or any widget filtering on it, shows that record.
  */
-export type ColumnType = "state" | "string" | "number" | "boolean" | "button" | "image" | "timestamp";
+export type ColumnType = "state" | "string" | "number" | "boolean" | "button" | "image" | "timestamp" | "edit";
 /**
- * The cell value to display. For images, this is the image URL. For buttons, this is the button label. For other types, this is the raw value to be formatted according to column type.
+ * The cell value to display. For images, this is the image URL. For buttons, this is the button label. For edit columns, this is the record key the button sends as the URL parameter; it is not displayed. For other types, this is the raw value to be formatted according to column type.
  */
 export type DisplayValue = string;
 /**
- * Navigation URL for button and image columns. For buttons, clicking navigates to this URL. For images, clicking the image opens this link. Can be absolute URLs or relative paths for dashboard navigation.
+ * Link of a button or image column, opened when the button or image is clicked. An absolute URL (with a scheme, such as https://example.com) opens in a new tab; a path without a scheme, such as /machines/press-1, opens that board page in place. Leave it empty for no link.
  */
 export type LinkURL = string;
 /**
@@ -57,6 +57,14 @@ export type Values = {
   link?: LinkURL;
   [k: string]: unknown;
 }[];
+/**
+ * For 'edit' columns: the URL parameter the button sets to the cell's value, such as 'edit'. Required: without it the button is shown disabled. Use the same name as the Open on URL parameter setting of the form, or the Parameter filter of the widgets, on this page that should show the clicked record.
+ */
+export type URLParameterKey = string;
+/**
+ * For 'edit' columns: the Material Symbols icon name shown on the button, such as 'edit', 'open_in_new', 'visibility' or 'tune'. Empty means 'edit' (a pen).
+ */
+export type Icon = string;
 /**
  * Format string for parsing input timestamp values using Unicode LDML standard (e.g., 'yyyy-MM-dd HH:mm:ss.SSS'). Leave empty if timestamps are Unix epoch milliseconds (JavaScript timestamps).
  */
@@ -101,7 +109,7 @@ export type ColumnDefinitions = {
 }[];
 
 /**
- * A data table widget for displaying structured information in rows and columns. Use this widget to present lists, records, or any tabular data with customizable column types and formatting. Supports multiple column types: plain text, numbers with precision control, timestamps with format parsing, state indicators with color mapping, boolean values, clickable buttons with links, and images. Features include column width control, cell styling, horizontal overflow for wide tables, and header/cell separators. Ideal for device lists, event logs, inventory tables, status dashboards, or any scenario requiring organized data presentation in a grid format.
+ * A data table widget for displaying structured information in rows and columns. Use this widget to present lists, records, or any tabular data with customizable column types and formatting. Supports multiple column types: plain text, numbers with precision control, timestamps with format parsing, state indicators with color mapping, boolean values, clickable buttons with links, images, and edit buttons that hand a row's key to a form or another widget on the page through a URL parameter. Features include column width control, cell styling, horizontal overflow for wide tables, and header/cell separators.
  */
 export interface TableConfiguration {
   title?: Title;
@@ -122,9 +130,11 @@ export interface TableStyling {
   [k: string]: unknown;
 }
 /**
- * Visual styling options specific to this column. Settings depend on the column type.
+ * Type-specific settings and visual styling for this column. Settings depend on the column type.
  */
 export interface Styling {
+  parameterKey?: URLParameterKey;
+  iconName?: Icon;
   timestampParseFormat?: TimestampParseFormat;
   timestampFormat?: TimestampDisplayFormat;
   precision?: NumberPrecision;

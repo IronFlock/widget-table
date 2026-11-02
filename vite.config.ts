@@ -32,7 +32,7 @@ export default defineConfig({
         },
         sourcemap: true,
         rollupOptions: {
-            external: [/^lit/, /^@lit/, /^@vaadin/],
+            external: [/^lit/, /^@lit/, /^@vaadin/, /^@material\/web/],
             output: {
                 banner: '/* @license Copyright (c) 2025 IronFlock GmbH. All rights reserved.*/'
             }
