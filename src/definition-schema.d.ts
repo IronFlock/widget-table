@@ -58,11 +58,11 @@ export type Values = {
   [k: string]: unknown;
 }[];
 /**
- * Sorts the table's rows by this column. 'asc' puts the smallest number, the earliest timestamp, false, the first state of the State Map (unlisted states after the listed ones, alphabetically) or text from A first; 'desc' reverses it. Empty cells always come last. Sort the timestamp column 'desc' to show the newest rows first; without a sort, rows show in the order the data arrives, oldest first. Viewers can still click a header to sort by that column; clicking it a third time restores this sort.
+ * Sorts the table's rows by this column. 'asc' puts the smallest number, the earliest timestamp, false, the first state of the State Map (unlisted states after the listed ones, alphabetically) or text from A first; 'desc' reverses it. Empty cells always come last. Without a sort, rows show in the order the data arrives, oldest first, which is rarely what a reader wants, so give every table a sort that fits its content. Sort the column readers look rows up by first, usually the asset, machine or device name 'asc' (Sort Priority 1), then the time column 'desc' (Sort Priority 2), so each asset's newest rows come first. A time column (last update, event time) is normally sorted 'desc'; a log or event list without a name column sorts by its time column 'desc' alone. Viewers can still click a header to sort by that column; clicking it a third time restores this sort.
  */
 export type Sort = "none" | "asc" | "desc";
 /**
- * Which sorted column counts first when several are sorted: 1 sorts first, 2 orders the rows that tie on it, and so on. Sorted columns without a priority come after those with one, in column order. Leave it empty when only one column is sorted.
+ * Which sorted column counts first when several are sorted: 1 sorts first, 2 orders the rows that tie on it, and so on. Sorted columns without a priority come after those with one, in column order. Leave it empty when only one column is sorted. Example: the asset name 'asc' with priority 1 and the update timestamp 'desc' with priority 2 group the rows by asset, newest first within each asset.
  */
 export type SortPriority = number;
 /**
@@ -78,7 +78,7 @@ export type Icon = string;
  */
 export type TimestampParseFormat = string;
 /**
- * Format string for displaying timestamps using Unicode LDML standard. Examples: 'yyyy-MM-dd' for date only, 'HH:mm:ss' for time only, 'MMM d, yyyy h:mm a' for friendly format. Leave empty for ISO 8601 format.
+ * Display format for the timestamps, in the viewer's time zone. Always set one, and set the Column Width to fit it: empty shows the full ISO 8601 form in UTC (2026-11-15T13:32:05.000Z), which is long and in the wrong time zone for most viewers. Supported tokens (a subset of Unicode LDML): yyyy year, MM month, dd day, HH hour (00-23), mm minute, ss second, SSS millisecond; other characters show as written. Examples: 'yyyy-MM-dd HH:mm' (the usual choice), 'dd.MM.yyyy HH:mm:ss', 'yyyy-MM-dd' for date only, 'HH:mm:ss' for time only.
  */
 export type TimestampDisplayFormat = string;
 /**
@@ -90,7 +90,7 @@ export type NumberPrecision = number;
  */
 export type StateMap = string;
 /**
- * Fixed width for this column. CSS value like '100px', '20%', or 'auto'. Use fixed widths for consistent layout or 'auto' to size based on content.
+ * Fixed width for this column. CSS value like '100px', '20%', or 'auto'. Use fixed widths for consistent layout or 'auto' to size based on content. Always give a timestamp column a width that fits its Timestamp Display Format and its header, at the default 14px font about: 'HH:mm:ss' 90px, 'yyyy-MM-dd' 110px, 'yyyy-MM-dd HH:mm' 160px, 'yyyy-MM-dd HH:mm:ss' 190px, 'yyyy-MM-dd HH:mm:ss.SSS' 220px; widen it in proportion for a larger Font Size.
  */
 export type ColumnWidth = string;
 /**
@@ -106,7 +106,7 @@ export type FontWeight = string;
  */
 export type CellBorder = string;
 /**
- * Configure each column's header, data type, values, and styling. The order of columns here determines their display order in the table. Each column binds its values to a data source.
+ * Configure each column's header, data type, values, and styling. The order of columns here determines their display order in the table. Each column binds its values to a data source. Before you set the columns, work out from the data and the page what readers look rows up by, and give the table a sort that fits it (see Sort): usually the asset, machine or device name first and its update timestamp second, newest first. Every timestamp column needs a Timestamp Display Format and a Column Width that fits it.
  */
 export type ColumnDefinitions = {
   header?: HeaderLabel;
