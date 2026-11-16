@@ -229,7 +229,7 @@
                             },
                             "width": {
                                 "title": "Column Width",
-                                "description": "Fixed width for this column. CSS value like '100px', '20%', or 'auto'. Use fixed widths for consistent layout or 'auto' to size based on content. Always give a timestamp column a width that fits its Timestamp Display Format and its header, at the default 14px font about: 'HH:mm:ss' 90px, 'yyyy-MM-dd' 110px, 'yyyy-MM-dd HH:mm' 160px, 'yyyy-MM-dd HH:mm:ss' 190px, 'yyyy-MM-dd HH:mm:ss.SSS' 220px; widen it in proportion for a larger Font Size.",
+                                "description": "Fixed width for this column. A CSS length like '100px' or '20%' (a bare number counts as pixels), or 'auto' to make the column as wide as its widest visible value. Leave it empty to let the column share the remaining width with the other columns without a width. Always give a timestamp column a width that fits its Timestamp Display Format and its header, at the default 14px font about: 'HH:mm:ss' 90px, 'yyyy-MM-dd' 110px, 'yyyy-MM-dd HH:mm' 160px, 'yyyy-MM-dd HH:mm:ss' 190px, 'yyyy-MM-dd HH:mm:ss.SSS' 220px; widen it in proportion for a larger Font Size.",
                                 "type": "string",
                                 "dataDrivenDisabled": true,
                                 "order": 5

@@ -42,6 +42,27 @@ const compareSortValues = (a: number | string, b: number | string): number => {
 // which is set on the grid as a custom property and inherits into the cells.
 const EDIT_COLUMN_WIDTH = 'calc(2 * var(--cell-padding-horizontal, 16px) + 2.5em)'
 
+// Widths that mean "as wide as the content". Handed to vaadin as a cell width
+// they size every row's cell to its own content, so the columns of the rows
+// no longer line up; vaadin's autoWidth measures the column once instead.
+const CONTENT_WIDTHS = new Set(['auto', 'fit-content', 'max-content', 'min-content'])
+
+/**
+ * How a column is sized: a definite CSS length (a bare number counts as
+ * pixels), or measured from its content for 'auto' and its kin. Anything else
+ * (empty, a typo, 'inherit') leaves the column flexible, because a cell width
+ * that does not resolve to a length also lets each row's cell take the width
+ * of its own content.
+ */
+const columnSizing = (value: unknown): { width?: string; autoWidth: boolean } => {
+    const width = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : ''
+    if (CONTENT_WIDTHS.has(width.toLowerCase())) return { autoWidth: true }
+    if (/^\d+(\.\d+)?$/.test(width)) return { width: `${width}px`, autoWidth: false }
+    // A length always has a digit; this rules out keywords like 'inherit'.
+    if (/\d/.test(width) && CSS.supports('width', width)) return { width, autoWidth: false }
+    return { autoWidth: false }
+}
+
 // A link with a scheme (https:, mailto:) or a protocol-relative one is a web
 // address; anything else is the path of a board page for Studio to open.
 const isExternalLink = (link: string): boolean => /^[a-z][a-z0-9+.-]*:|^\/\//i.test(link)
@@ -122,6 +143,7 @@ export class WidgetTable extends LitElement {
     private unsortedRows: RowData[] = []
     private activeSort: SortKey[] = []
     private sortSignature = ''
+    private measureFrame?: number
 
     @state() private themeTitleColor?: string
     @state() private themeSubtitleColor?: string
@@ -156,6 +178,30 @@ export class WidgetTable extends LitElement {
 
     protected firstUpdated(_changedProperties: PropertyValues): void {
         this.registerTheme(this.theme)
+    }
+
+    /**
+     * Content-sized columns follow the data: vaadin measures them only when
+     * the column set or the row count changes, so a longer value in a live
+     * update, or a column switched to 'auto', would keep the old width. The
+     * measuring waits a frame for the grid to render the new rows.
+     */
+    protected updated(changedProperties: PropertyValues): void {
+        if (!changedProperties.has('rows') && !changedProperties.has('inputData')) return
+        if (this.measureFrame !== undefined) return
+        this.measureFrame = requestAnimationFrame(() => {
+            this.measureFrame = undefined
+            const grid = this.shadowRoot?.querySelector('vaadin-grid')
+            if (!grid || !this.isConnected) return
+            const columns = Array.from(grid.querySelectorAll('vaadin-grid-column'))
+            if (columns.some((col) => col.autoWidth)) grid.recalculateColumnWidths()
+        })
+    }
+
+    disconnectedCallback(): void {
+        super.disconnectedCallback()
+        if (this.measureFrame !== undefined) cancelAnimationFrame(this.measureFrame)
+        this.measureFrame = undefined
     }
 
     registerTheme(theme?: Theme) {
@@ -1030,15 +1076,20 @@ export class WidgetTable extends LitElement {
                             (col, i) => `${col?.header}-${i}`,
                             (col, colIndex) => {
                                 // An edit column is as narrow as its button unless it has a width.
+                                const sizing = columnSizing(col?.styling?.width)
                                 const width =
-                                    col?.styling?.width ||
-                                    (col?.type === 'edit' ? EDIT_COLUMN_WIDTH : undefined)
+                                    sizing.width ??
+                                    (col?.type === 'edit' && !sizing.autoWidth ? EDIT_COLUMN_WIDTH : undefined)
                                 const position = this.activeSort.findIndex((key) => key.col === colIndex)
+                                // A fixed or content-sized column keeps its width; the others
+                                // share the rest, and with horizontal overflow on they start
+                                // from their content's width rather than vaadin's 100px.
                                 return html`
                                     <vaadin-grid-column
-                                        .flexGrow=${width ? 0 : 1}
-                                        width=${ifDefined(width)}
-                                        ?autoWidth=${this.inputData?.horizontalOverflow && !width}
+                                        .flexGrow=${width || sizing.autoWidth ? 0 : 1}
+                                        .width=${width ?? '100px'}
+                                        .autoWidth=${sizing.autoWidth ||
+                                        (!!this.inputData?.horizontalOverflow && !width)}
                                         resizable
                                         .textAlign=${this.getTextAlign(col)}
                                         ${columnHeaderRenderer(this.headerRenderer(col, colIndex), [

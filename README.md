@@ -73,7 +73,7 @@ interface Column {
         iconName?: string // edit: Material Symbols icon name, 'edit' by default
         precision?: number // Decimal places for number type
         stateMap?: string // e.g. "'ONLINE': 'green', 'OFFLINE': 'red'"
-        width?: string // Column width e.g. '150px'
+        width?: string // Column width e.g. '150px', '20%', 'auto' (as wide as its content)
         fontSize?: string
         fontWeight?: string // e.g. '800' for bold
         color?: string // Font color
